@@ -1,0 +1,31 @@
+[package]
+name = "swono"
+version = "0.1.0"
+edition = "2021"
+
+[profile.release]
+strip = true
+opt-level = 3
+lto = true
+codegen-units = 1
+panic = "abort"
+
+[profile.wasm-dev]
+inherits = "dev"
+opt-level = 1
+
+[profile.server-dev]
+inherits = "dev"
+
+[profile.android-dev]
+inherits = "dev"
+
+[dependencies]
+serde = {version = "1.0"}
+rand = "0.8.5"
+simplecsv = {version="0.1.0", path="/home/leher/workspace/simplecsv/"}
+chrono = "0.4.39"
+log = "0.4.27"
+env_logger = "0.11.8"
+toml = "0.8.23"
+config = "0.15.11"

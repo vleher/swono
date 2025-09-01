@@ -1,0 +1,95 @@
+title = "SWONO! Calculator"
+
+[user]
+name = "User"
+birth_month = 1
+birth_year = 1949
+max_age = 150
+yearly_expenses = 70000.0
+buffer = 1.0
+# 12 is monthly, 4 is quarterly, 1 is yearly
+periods_in_year = 12
+input_file = "Income-Assets.csv"
+
+[market]
+inflation = 0.04
+
+[[assets]]
+name = "IRA-TRP"
+asset_type = "Ira"
+real_return = 0.01
+start_age = 60
+end_age = 100
+tax_rate = 0.015
+
+[[assets]]
+name = "401K"
+asset_type = "FourOone"
+real_return = 0.01
+start_age = 60
+end_age = 100
+tax_rate = 0.015
+
+[[assets]]
+name = "Brk"
+asset_type = "Stocks"
+real_return = 0.01
+start_age = 40
+end_age = 100
+tax_rate = 0.025
+
+[[assets]]
+name = "Funds"
+asset_type = "Bonds"
+real_return = 0.01
+start_age = 40
+end_age = 100
+tax_rate = 0.015
+
+[[assets]]
+name = "Other"
+asset_type = "Stocks"
+real_return = 0.01
+start_age = 40
+end_age = 100
+tax_rate = 0.025
+
+[[assets]]
+name = "Cash"
+asset_type = "Cash"
+real_return = 0.00
+start_age = 40
+end_age = 100
+tax_rate = 0.0
+
+[[income]]
+name = "SocSec"
+asset_type = "Income"
+real_return = 0.015
+start_age = 49
+end_age = 100
+tax_rate = 0.015
+
+[[income]]
+name = "SocSec-Two"
+asset_type = "Income"
+real_return = 0.015
+start_age = 62
+end_age = 100
+tax_rate = 0.015
+
+[[income]]
+name = "Trading"
+asset_type = "Income"
+real_return = 0.0
+start_age = 40
+end_age = 75
+tax_rate = 0.025
+
+[[income]]
+name = "Job"
+asset_type = "Income"
+real_return = 0.025
+start_age = 40
+end_age = 60
+tax_rate = 0.025
