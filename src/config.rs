@@ -1,5 +1,3 @@
-use std::str::FromStr;
-
 use config::{Config, ConfigError};
 use serde::{Deserialize, Serialize};
 

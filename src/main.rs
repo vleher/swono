@@ -7,10 +7,11 @@ mod utils;
 
 use asset::AssetWithValue;
 use config::Configuration;
+use env_logger::Env;
 use income::IncomeWithValue;
+use simplecsv::csv::CSVFile;
 use utils::calculate_compound;
 
-use env_logger::Env;
 use log::debug;
 use log::error;
 use log::info;
@@ -20,6 +21,16 @@ use std::io::Write;
 use user::User;
 
 fn main() {
+    // let logfile = FileAppender::builder()
+    //     .encoder(Box::new(PatternEncoder::new("{1} - {m}\n")))
+    //     .build("output.log")
+    //     .unwrap();
+    // let config = Config::builder()
+    //     .appender(Appender::builder().build("logfile", Box::new(logfile)))
+    //     .build(Root::builder().appender("logfile").build(LevelFilter::Info))
+    //     .unwrap();
+    // log4rs::init_config(config).unwrap();
+
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .format_timestamp(None)
         .format(|buf, record| writeln!(buf, "{}", record.args()))
@@ -27,9 +38,7 @@ fn main() {
     application();
 }
 
-fn load_income_assets(
-    configuration: &Configuration,
-) -> (Vec<AssetWithValue>, Vec<IncomeWithValue>) {
+fn load_input_data(configuration: &Configuration) -> CSVFile {
     info!(
         "Loading Input values from {}",
         configuration.user().input_file()
@@ -45,35 +54,56 @@ fn load_income_assets(
             panic!("Exit!!!. No input data found.");
         }
     };
+    input_data
+}
+
+fn load_income_assets<'a>(
+    input_data: &'a CSVFile,
+    configuration: &'a Configuration,
+) -> Vec<(String, Vec<AssetWithValue<'a>>, Vec<IncomeWithValue<'a>>)> {
     let size = input_data.data().len();
     debug!("Size of the input data file : {size}");
 
+    let mut result: Vec<(String, Vec<AssetWithValue>, Vec<IncomeWithValue>)> = Vec::new();
+    for i in 0..size {
+        result.push(load_single_income_assets(input_data, configuration, i));
+    }
+    result
+}
+
+fn load_single_income_assets<'a>(
+    input_data: &'a CSVFile,
+    configuration: &'a Configuration,
+    index: usize,
+) -> (String, Vec<AssetWithValue<'a>>, Vec<IncomeWithValue<'a>>) {
     let mut asset_list: Vec<AssetWithValue> = Vec::new();
     let mut income_list: Vec<IncomeWithValue> = Vec::new();
+
+    let input_date = input_data.get_value_by_index(index, 0).unwrap_or_default();
 
     for asset in configuration.assets() {
         debug!("Reading asset {} from input", asset.name());
         let value = input_data
-            .get_value_by_name(size - 1, asset.name())
+            .get_value_by_name(index, asset.name())
             .unwrap_or_default()
             .parse()
             .unwrap();
-        info!("Asset {} with {:.2}", asset.name(), value);
+        debug!("Asset {} with {:.2}", asset.name(), value);
         asset_list.push(AssetWithValue::new(asset, value));
     }
 
     for income in configuration.income() {
         debug!("Reading income {} from input", income.name());
         let value = input_data
-            .get_value_by_name(size - 1, income.name())
+            .get_value_by_name(index, income.name())
             .unwrap_or_default()
             .parse()
             .unwrap();
-        info!("Income {} with {:.2}", income.name(), value);
+        debug!("Income {} with {:.2}", income.name(), value);
         income_list.push(IncomeWithValue::new(income, value));
     }
 
-    (asset_list, income_list)
+    (input_date, asset_list, income_list)
 }
 
 fn load_configuration() -> Configuration {
@@ -96,79 +126,91 @@ fn application() {
 
     // Configuration for the application
     let configuration = load_configuration();
+    // Load data from input file
+    let input_data = load_input_data(&configuration);
+
     // Data for the asset and income accounts
-    let (asset_list, income_list) = load_income_assets(&configuration);
+    let complete_asset_list = load_income_assets(&input_data, &configuration);
     // User information
     let current_user = configuration.user();
     // Market Information
     let market = configuration.market();
-    // start value for iteration
-    let start_loop_value = 1000.0;
-    let mut expense_loop_value = start_loop_value;
 
-    let mut try_again = true;
-    while try_again {
-        debug!("Running with {expense_loop_value:.2}");
-        let (revenue_shortfall, total_revenue, assets_left, output_row) = run_simulation(
-            &income_list,
-            &asset_list,
-            current_user,
-            market,
-            expense_loop_value,
-        );
+    for (input_date, asset_list, income_list) in complete_asset_list {
+        info!("\n---------");
+        // start value for iteration
+        let start_loop_value = 1000.0;
+        let mut expense_loop_value = start_loop_value;
 
-        let mut asset_value_left = 0.0;
-        for asset in &assets_left {
-            if asset.config().is_accessable(current_user.current_age()) {
-                asset_value_left += asset.value();
-            }
+        let mut try_again = true;
+        let mut total_starting_asset = 0.0;
+        for asset in asset_list.iter() {
+            total_starting_asset += asset.value()
         }
-        let total_asset_revenue = total_revenue + asset_value_left;
-        let per_period_withdrawal = expense_loop_value / (current_user.periods_in_year() as f64);
-        info!("Running with {expense_loop_value:.2} ({per_period_withdrawal:.2}) caused a shortfall of {revenue_shortfall:.2} and a revenue of {total_revenue:.2} with accessable assets worth {asset_value_left:.2} : Total : {total_asset_revenue:.2}");
+        info!("{input_date}  Asset : ${total_starting_asset:.2}");
+        while try_again {
+            debug!("Running with {expense_loop_value:.2}");
+            let (revenue_shortfall, total_revenue, assets_left, output_row) = run_simulation(
+                &income_list,
+                &asset_list,
+                current_user,
+                market,
+                expense_loop_value,
+            );
 
-        try_again = match asset_value_left {
-            0.0..100.0 => {
-                if let 1000.0.. = expense_loop_value {
-                    info!("");
-                    let mut initial_asset = 0.0;
-                    for asset in &asset_list {
-                        initial_asset += asset.value();
+            let mut asset_value_left = 0.0;
+            for asset in &assets_left {
+                if asset.config().is_accessable(current_user.current_age()) {
+                    asset_value_left += asset.value();
+                }
+            }
+            let total_asset_revenue = total_revenue + asset_value_left;
+            let per_period_withdrawal =
+                expense_loop_value / (current_user.periods_in_year() as f64);
+            debug!("Running with {expense_loop_value:.2} ({per_period_withdrawal:.2}) caused a shortfall of {revenue_shortfall:.2} and a revenue of {total_revenue:.2} with accessable assets worth {asset_value_left:.2} : Total : {total_asset_revenue:.2}");
+
+            try_again = match asset_value_left {
+                0.0..100.0 => {
+                    if let 1000.0.. = expense_loop_value {
+                        let mut initial_asset = 0.0;
+                        for asset in &asset_list {
+                            initial_asset += asset.value();
+                        }
+                        let withdrawal_rate = expense_loop_value / initial_asset;
+                        info!("Can have an yearly expense of {expense_loop_value:.2} ({withdrawal_rate:.4}) (Period:{per_period_withdrawal:.2})");
                     }
-                    let withdrawal_rate = expense_loop_value / initial_asset;
-                    info!("Can have an yearly expense of {expense_loop_value:.2} ({withdrawal_rate:.4}) ({per_period_withdrawal:.2})");
-                }
-                let output_file = simplecsv::new_csv_builder()
-                    .has_header(true)
-                    .header(
-                        "Period,Age,Expenses,Income,AssetWithdrawal,TotalRevenue,TotalAssets"
-                            .to_string(),
-                    )
-                    .rows(output_row);
-                let _ = output_file.build().save_to_file("outputfile.csv");
+                    let output_file = simplecsv::new_csv_builder()
+                        .has_header(true)
+                        .header(
+                            "Period,Age,Expenses,Income,AssetWithdrawal,TotalRevenue,TotalAssets"
+                                .to_string(),
+                        )
+                        .rows(output_row);
+                    let _ = output_file.build().save_to_file("outputfile.csv");
 
-                if expense_loop_value < current_user.yearly_expenses() {
-                    info!(
-                        "[{}] expenses are HIGHER than revenue.Not Yet!",
-                        current_user.name()
-                    );
+                    if expense_loop_value < current_user.yearly_expenses() {
+                        info!(
+                            "[{}] expenses are HIGHER than revenue.Not Yet!",
+                            current_user.name()
+                        );
+                    }
+                    false
                 }
-                false
-            }
-            100.0.. => {
-                expense_loop_value +=
-                    asset_value_left / (current_user.total_periods_of_retirement() as f64);
-                true
-            }
-            _ => {
-                error!(
-                    "ERROR {expense_loop_value:.2} {total_asset_revenue:.2} {revenue_shortfall:.2}"
-                );
-                false
-            }
-        };
+                100.0.. => {
+                    expense_loop_value +=
+                        asset_value_left / (current_user.total_periods_of_retirement() as f64);
+                    true
+                }
+                _ => {
+                    error!(
+						"ERROR {expense_loop_value:.2} {total_asset_revenue:.2} {revenue_shortfall:.2}"
+					);
+                    false
+                }
+            };
+        }
     }
-    info!("{current_user:?}");
+    info!("\n{current_user:?}");
 }
 
 fn run_simulation<'a>(
@@ -182,7 +224,7 @@ fn run_simulation<'a>(
     let mut initial_revenue = 0.0;
     let mut total_frozen_asset = 0.0;
     let mut current_asset_list = asset_list.to_owned();
-    let mut output_row = Vec::new();
+    let mut output_rows = Vec::new();
     for period_in_retirement in (0..current_user.total_periods_of_retirement()).rev() {
         let age_in_retirement = current_user.current_age()
             + (period_in_retirement / current_user.periods_in_year()) as f64
@@ -193,8 +235,8 @@ fn run_simulation<'a>(
         let inflation = market.inflation_yearly() / (current_user.periods_in_year() as f64);
         let fixed_cost =
             calculate_compound(initial_fixed_cost, inflation, period_in_retirement as f64);
-        info!("");
-        info!("[{period_in_retirement}] : Age: {age_in_retirement:.2} FixedCost: {fixed_cost:.2}");
+        debug!("");
+        debug!("[{period_in_retirement}] : Age: {age_in_retirement:.2} FixedCost: {fixed_cost:.2}");
 
         current_asset_list.sort_by(|a, b| b.cmp(a));
 
@@ -205,7 +247,7 @@ fn run_simulation<'a>(
                 income.compute_income(current_user, age_in_retirement, period_in_retirement);
             total_income += generated_income;
         }
-        info!("Generated Total Income : {total_income:.2}");
+        debug!("Generated Total Income : {total_income:.2}");
         let rest_of_revenue = (fixed_cost - total_income) * current_user.buffer();
 
         debug!("Assets will need to provide for {rest_of_revenue:.2}");
@@ -227,7 +269,7 @@ fn run_simulation<'a>(
 
         initial_revenue = total_income + (rest_of_revenue - revenue_still_needed);
 
-        output_row.push(format!("{period_in_retirement},{age_in_retirement:.2},{fixed_cost:.2},{total_income:.2},{:.2},{:.2},{total_frozen_asset:.2}",(rest_of_revenue-revenue_still_needed), (initial_revenue)));
+        output_rows.push(format!("{period_in_retirement},{age_in_retirement:.2},{fixed_cost:.2},{total_income:.2},{:.2},{:.2},{total_frozen_asset:.2}",(rest_of_revenue-revenue_still_needed), (initial_revenue)));
         if revenue_still_needed > 0.0 {
             print_shortfall(fixed_cost, revenue_still_needed);
         }
@@ -236,12 +278,12 @@ fn run_simulation<'a>(
         revenue_still_needed,
         initial_revenue,
         current_asset_list,
-        output_row,
+        output_rows,
     )
 }
 
 fn print_shortfall(min_expenses: f64, shortfall: f64) {
-    info!("---------Shortfall----------");
-    info!("Min Needed:{min_expenses:.2} Shortfall:{shortfall:.2}");
-    info!("----------------------------");
+    debug!("---------Shortfall----------");
+    debug!("Min Needed:{min_expenses:.2} Shortfall:{shortfall:.2}");
+    debug!("----------------------------");
 }

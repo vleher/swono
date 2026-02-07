@@ -1,6 +1,6 @@
 use std::fmt;
 
-use log::info;
+use log::{debug, info};
 use serde::{Deserialize, Serialize};
 
 use super::asset::AccountType;
@@ -80,7 +80,7 @@ impl<'a> IncomeWithValue<'a> {
                 period_in_retirement as f64,
             );
 
-            info!("{} : pays {:.2}", self.config().name(), generated_income);
+            debug!("{} : pays {:.2}", self.config().name(), generated_income);
         }
         generated_income
     } // application

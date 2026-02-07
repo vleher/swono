@@ -148,14 +148,14 @@ impl<'a> AssetWithValue<'a> {
             let updated_withdrawal =
                 calculate_compound(frozen_asset, rate, period_in_retirement as f64);
             revenue_still_needed -= f64::min(revenue_still_needed, updated_withdrawal);
-            info!(
+            debug!(
                 "{} : Withdraw {updated_withdrawal:.2}: Asset Value: {:.2} => {:.2}",
                 self.config().name(),
                 self.value(),
                 updated_asset_value
             );
             if period_in_retirement > 0 {
-                info!(">>>> Freezing {frozen_asset:.2}");
+                debug!(">>>> Freezing {frozen_asset:.2}");
             }
         }
         debug!(
