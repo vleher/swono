@@ -5,35 +5,35 @@ name = "Leher"
 birth_month = 12
 birth_year = 1975
 max_age = 90
-yearly_expenses = 40000.0
+yearly_expenses = 50000.0
 buffer = 1.0
-# 12 is monthly, 4 is quarterly, 1 is yearly
-periods_in_year = 12
 input_file = "Income-Assets.csv"
 
 [market]
 inflation = 0.03
+# 12 is monthly, 4 is quarterly, 1 is yearly
+periods_in_year = 12
 
 [[assets]]
 name = "IRA-TRP"
 asset_type = "Ira"
-real_return = 0.04
-start_age = 60
+real_return = 0.01
+start_age = 65
 end_age = 100
 tax_rate = 0.015
 
 [[assets]]
 name = "401K-Empower"
 asset_type = "FourOone"
-real_return = 0.02
-start_age = 60
+real_return = 0.0
+start_age = 70
 end_age = 100
 tax_rate = 0.015
 
 [[assets]]
 name = "Brk-Schwab"
 asset_type = "Stocks"
-real_return = 0.02
+real_return = 0.0
 start_age = 40
 end_age = 100
 tax_rate = 0.025
@@ -41,7 +41,7 @@ tax_rate = 0.025
 [[assets]]
 name = "Funds-TRP"
 asset_type = "Bonds"
-real_return = 0.04
+real_return = 0.0
 start_age = 40
 end_age = 100
 tax_rate = 0.015
@@ -49,7 +49,7 @@ tax_rate = 0.015
 [[assets]]
 name = "Oracle-TRP"
 asset_type = "Stocks"
-real_return = 0.03
+real_return = 0.0
 start_age = 40
 end_age = 100
 tax_rate = 0.025
@@ -65,7 +65,7 @@ tax_rate = 0.0
 [[income]]
 name = "SocSec-Denise"
 asset_type = "Income"
-real_return = 0.02
+real_return = 0.01
 start_age = 49
 end_age = 100
 tax_rate = 0.015
@@ -73,7 +73,7 @@ tax_rate = 0.015
 [[income]]
 name = "SocSec-Leher"
 asset_type = "Income"
-real_return = 0.02
+real_return = 0.01
 start_age = 62
 end_age = 100
 tax_rate = 0.015
