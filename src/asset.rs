@@ -1,16 +1,9 @@
 use std::{
     cmp::Ordering,
-    fmt::{self, Formatter},
+    fmt::{self, Display, Formatter},
 };
 
-use log::{debug, info};
 use serde::{Deserialize, Serialize};
-
-use crate::{
-    market::MarketConditions,
-    user::User,
-    utils::{calculate_compound, calculate_principal},
-};
 
 #[derive(Clone, Debug, Serialize, Deserialize)]
 pub enum AccountType {
@@ -121,51 +114,8 @@ impl<'a> AssetWithValue<'a> {
         self.config
     }
 
-    pub fn process_asset(
-        &self,
-        current_user: &User,
-        market: &MarketConditions,
-        age_in_retirement: f64,
-        period_in_retirement: usize,
-        revenue_needed: f64,
-    ) -> (f64, f64, f64) {
-        // Real return is the rate over the inflation
-        let rate = (self.config().real_return_yearly() + market.inflation_yearly())
-            / (current_user.periods_in_year() as f64);
-
-        let mut updated_asset_value = self.value();
-        let mut revenue_still_needed = revenue_needed;
-        let mut frozen_asset = 0.0;
-
-        if self.value() > 0.0
-            && self.config().is_accessable(age_in_retirement)
-            && revenue_needed > 0.0
-        {
-            let principal = calculate_principal(revenue_needed, rate, period_in_retirement as f64);
-
-            updated_asset_value = f64::max(0.0, updated_asset_value - principal);
-            frozen_asset += f64::min(self.value(), principal);
-            let updated_withdrawal =
-                calculate_compound(frozen_asset, rate, period_in_retirement as f64);
-            revenue_still_needed -= f64::min(revenue_still_needed, updated_withdrawal);
-            debug!(
-                "{} : Withdraw {updated_withdrawal:.2}: Asset Value: {:.2} => {:.2}",
-                self.config().name(),
-                self.value(),
-                updated_asset_value
-            );
-            if period_in_retirement > 0 {
-                debug!(">>>> Freezing {frozen_asset:.2}");
-            }
-        }
-        debug!(
-        "{} : Revenue: {revenue_needed:.2} => {revenue_still_needed:.2} : Asset Value: {:.2} => {:.2}",
-        self.config().name(),
-        self.value(),
-        updated_asset_value
-    );
-
-        (updated_asset_value, frozen_asset, revenue_still_needed)
+    pub fn is_accessable(&self, age: f64) -> bool {
+        self.config.is_accessable(age)
     }
 }
 
@@ -193,5 +143,11 @@ impl<'a> Ord for AssetWithValue<'a> {
                     .partial_cmp(&other.value())
                     .unwrap_or(Ordering::Equal)
             })
+    }
+}
+
+impl<'a> Display for AssetWithValue<'a> {
+    fn fmt(&self, f: &mut Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: ${:.2}", self.config().name(), self.value())
     }
 }

@@ -1,289 +1,216 @@
 mod asset;
 mod config;
 mod income;
+mod incomeasset;
 mod market;
+mod period;
 mod user;
 mod utils;
 
 use asset::AssetWithValue;
+use chrono::NaiveDate;
 use config::Configuration;
 use env_logger::Env;
 use income::IncomeWithValue;
+use incomeasset::IncomeAsset;
 use simplecsv::csv::CSVFile;
-use utils::calculate_compound;
 
-use log::debug;
-use log::error;
-use log::info;
-use market::MarketConditions;
+use log::{debug, error, info};
 use std::io::Write;
 
-use user::User;
+use crate::{market::MarketConditions, period::Period, user::User};
 
 fn main() {
-    // let logfile = FileAppender::builder()
-    //     .encoder(Box::new(PatternEncoder::new("{1} - {m}\n")))
-    //     .build("output.log")
-    //     .unwrap();
-    // let config = Config::builder()
-    //     .appender(Appender::builder().build("logfile", Box::new(logfile)))
-    //     .build(Root::builder().appender("logfile").build(LevelFilter::Info))
-    //     .unwrap();
-    // log4rs::init_config(config).unwrap();
-
     env_logger::Builder::from_env(Env::default().default_filter_or("info"))
         .format_timestamp(None)
         .format(|buf, record| writeln!(buf, "{}", record.args()))
         .init();
-    application();
+
+    if let Err(e) = application() {
+        error!("Application failed: {}", e);
+        std::process::exit(1);
+    }
 }
 
-fn load_input_data(configuration: &Configuration) -> CSVFile {
+/// Main application logic
+fn application() -> Result<(), Box<dyn std::error::Error>> {
+    info!("Starting SWONO!");
+
+    let configurations = load_configurations()?;
+    let configuration = &configurations[0];
+
+    let input_data = load_input_data(configuration)?;
+    let complete_asset_list = load_income_assets(&input_data, configuration);
+    let current_user = configuration.user();
+    let market = configuration.market();
+    // Process simulation logic with loaded configuration
+    process_simulation_results(complete_asset_list, current_user, market)?;
+
+    info!("\n{current_user:?}");
+    Ok(())
+}
+
+/// Loads input data from CSV file
+fn load_input_data(configuration: &Configuration) -> Result<CSVFile, Box<dyn std::error::Error>> {
     info!(
         "Loading Input values from {}",
         configuration.user().input_file()
     );
-    let input_data = match simplecsv::parse_from_file(configuration.user().input_file(), true) {
-        Ok(data) => data,
-        Err(error) => {
+    let result =
+        simplecsv::parse_from_file(configuration.user().input_file(), true).map_err(|error| {
             error!(
                 "Error parsing input file : {} Error: {}",
                 configuration.user().input_file(),
                 error
             );
-            panic!("Exit!!!. No input data found.");
-        }
-    };
-    input_data
+            format!("Failed to parse input file: {}", error)
+        })?;
+    Ok(result)
 }
 
+/// Loads all income and asset data from CSV
 fn load_income_assets<'a>(
     input_data: &'a CSVFile,
     configuration: &'a Configuration,
-) -> Vec<(String, Vec<AssetWithValue<'a>>, Vec<IncomeWithValue<'a>>)> {
+) -> Vec<IncomeAsset<'a>> {
     let size = input_data.data().len();
     debug!("Size of the input data file : {size}");
 
-    let mut result: Vec<(String, Vec<AssetWithValue>, Vec<IncomeWithValue>)> = Vec::new();
-    for i in 0..size {
-        result.push(load_single_income_assets(input_data, configuration, i));
-    }
-    result
+    (0..size)
+        .map(|i| load_single_income_assets(input_data, configuration, i))
+        .collect()
 }
 
+/// Loads income and asset data for a single row
 fn load_single_income_assets<'a>(
     input_data: &'a CSVFile,
     configuration: &'a Configuration,
     index: usize,
-) -> (String, Vec<AssetWithValue<'a>>, Vec<IncomeWithValue<'a>>) {
-    let mut asset_list: Vec<AssetWithValue> = Vec::new();
-    let mut income_list: Vec<IncomeWithValue> = Vec::new();
+) -> IncomeAsset<'a> {
+    let input_date_str = input_data.get_value_by_index(index, 0).unwrap_or_default();
+    let input_date = NaiveDate::parse_from_str(&input_date_str, "%Y-%m-%d").unwrap_or_default();
 
-    let input_date = input_data.get_value_by_index(index, 0).unwrap_or_default();
-
-    for asset in configuration.assets() {
-        debug!("Reading asset {} from input", asset.name());
-        let value = input_data
-            .get_value_by_name(index, asset.name())
-            .unwrap_or_default()
-            .parse()
-            .unwrap();
-        debug!("Asset {} with {:.2}", asset.name(), value);
-        asset_list.push(AssetWithValue::new(asset, value));
-    }
-
-    for income in configuration.income() {
-        debug!("Reading income {} from input", income.name());
-        let value = input_data
-            .get_value_by_name(index, income.name())
-            .unwrap_or_default()
-            .parse()
-            .unwrap();
-        debug!("Income {} with {:.2}", income.name(), value);
-        income_list.push(IncomeWithValue::new(income, value));
-    }
-
-    (input_date, asset_list, income_list)
-}
-
-fn load_configuration() -> Configuration {
-    let config_file_name = "swono.config.toml";
-    debug!("Loading configuration file : {config_file_name}");
-    let config = Configuration::new_from_file(config_file_name);
-
-    let config = match config {
-        Ok(cf) => cf,
-        Err(error) => {
-            error!("Cannot load config file: {config_file_name}. Error: {error}");
-            panic!("Exit!!!. Create a valid configuration to proceed.")
-        }
-    };
-    config
-}
-
-fn application() {
-    info!("Starting SWONO!");
-
-    // Configuration for the application
-    let configuration = load_configuration();
-    // Load data from input file
-    let input_data = load_input_data(&configuration);
-
-    // Data for the asset and income accounts
-    let complete_asset_list = load_income_assets(&input_data, &configuration);
-    // User information
-    let current_user = configuration.user();
-    // Market Information
-    let market = configuration.market();
-
-    for (input_date, asset_list, income_list) in complete_asset_list {
-        info!("\n---------");
-        // start value for iteration
-        let start_loop_value = 1000.0;
-        let mut expense_loop_value = start_loop_value;
-
-        let mut try_again = true;
-        let mut total_starting_asset = 0.0;
-        for asset in asset_list.iter() {
-            total_starting_asset += asset.value()
-        }
-        info!("{input_date}  Asset : ${total_starting_asset:.2}");
-        while try_again {
-            debug!("Running with {expense_loop_value:.2}");
-            let (revenue_shortfall, total_revenue, assets_left, output_row) = run_simulation(
-                &income_list,
-                &asset_list,
-                current_user,
-                market,
-                expense_loop_value,
+    // Load assets
+    let asset_list: Vec<AssetWithValue> = configuration
+        .assets()
+        .iter()
+        .map(|asset| {
+            let value = input_data
+                .get_value_by_name(index, asset.name())
+                .unwrap_or_default()
+                .parse::<f64>()
+                .unwrap_or(0.0);
+            debug!(
+                "Parsed Asset {} with {:.2} at {}",
+                asset.name(),
+                value,
+                asset.start_age()
             );
+            AssetWithValue::new(asset, value)
+        })
+        .collect();
 
-            let mut asset_value_left = 0.0;
-            for asset in &assets_left {
-                if asset.config().is_accessable(current_user.current_age()) {
-                    asset_value_left += asset.value();
-                }
-            }
-            let total_asset_revenue = total_revenue + asset_value_left;
-            let per_period_withdrawal =
-                expense_loop_value / (current_user.periods_in_year() as f64);
-            debug!("Running with {expense_loop_value:.2} ({per_period_withdrawal:.2}) caused a shortfall of {revenue_shortfall:.2} and a revenue of {total_revenue:.2} with accessable assets worth {asset_value_left:.2} : Total : {total_asset_revenue:.2}");
+    // Load income
+    let income_list: Vec<IncomeWithValue> = configuration
+        .income()
+        .iter()
+        .map(|income| {
+            let value = input_data
+                .get_value_by_name(index, income.name())
+                .unwrap_or_default()
+                .parse::<f64>()
+                .unwrap_or(0.0);
+            debug!(
+                "Parsed Income {} with {:.2} at {}",
+                income.name(),
+                value,
+                income.start_age()
+            );
+            IncomeWithValue::new(income, value)
+        })
+        .collect();
 
-            try_again = match asset_value_left {
-                0.0..100.0 => {
-                    if let 1000.0.. = expense_loop_value {
-                        let mut initial_asset = 0.0;
-                        for asset in &asset_list {
-                            initial_asset += asset.value();
-                        }
-                        let withdrawal_rate = expense_loop_value / initial_asset;
-                        info!("Can have an yearly expense of {expense_loop_value:.2} ({withdrawal_rate:.4}) (Period:{per_period_withdrawal:.2})");
-                    }
-                    let output_file = simplecsv::new_csv_builder()
-                        .has_header(true)
-                        .header(
-                            "Period,Age,Expenses,Income,AssetWithdrawal,TotalRevenue,TotalAssets"
-                                .to_string(),
-                        )
-                        .rows(output_row);
-                    let _ = output_file.build().save_to_file("outputfile.csv");
-
-                    if expense_loop_value < current_user.yearly_expenses() {
-                        info!(
-                            "[{}] expenses are HIGHER than revenue.Not Yet!",
-                            current_user.name()
-                        );
-                    }
-                    false
-                }
-                100.0.. => {
-                    expense_loop_value +=
-                        asset_value_left / (current_user.total_periods_of_retirement() as f64);
-                    true
-                }
-                _ => {
-                    error!(
-						"ERROR {expense_loop_value:.2} {total_asset_revenue:.2} {revenue_shortfall:.2}"
-					);
-                    false
-                }
-            };
-        }
-    }
-    info!("\n{current_user:?}");
+    IncomeAsset::new(input_date, income_list, asset_list)
 }
 
-fn run_simulation<'a>(
-    income_list: &Vec<IncomeWithValue>,
-    asset_list: &'a [AssetWithValue<'a>],
+/// Loads configuration file
+fn load_configuration(config_file_name: &str) -> Result<Configuration, Box<dyn std::error::Error>> {
+    debug!("Loading configuration file : {config_file_name}");
+    let result = Configuration::new_from_file(config_file_name).map_err(|error| {
+        error!("Cannot load config file: {config_file_name}. Error: {error}");
+        format!("Failed to load config file: {}", error)
+    })?;
+    Ok(result)
+}
+
+/// Loads all configurations
+fn load_configurations() -> Result<Vec<Configuration>, Box<dyn std::error::Error>> {
+    let config_names = ["swono.config.toml"];
+    let mut configs = Vec::new();
+
+    for cn in config_names {
+        configs.push(load_configuration(cn)?);
+    }
+
+    Ok(configs)
+}
+
+/// Process simulation results and generate output
+fn process_simulation_results(
+    complete_asset_list: Vec<IncomeAsset>,
     current_user: &User,
     market: &MarketConditions,
-    yearly_expenses: f64,
-) -> (f64, f64, Vec<AssetWithValue<'a>>, Vec<String>) {
-    let mut revenue_still_needed = 0.0;
-    let mut initial_revenue = 0.0;
-    let mut total_frozen_asset = 0.0;
-    let mut current_asset_list = asset_list.to_owned();
-    let mut output_rows = Vec::new();
-    for period_in_retirement in (0..current_user.total_periods_of_retirement()).rev() {
-        let age_in_retirement = current_user.current_age()
-            + (period_in_retirement / current_user.periods_in_year()) as f64
-            + (period_in_retirement % current_user.periods_in_year()) as f64
-                / current_user.periods_in_year() as f64;
+) -> Result<(), Box<dyn std::error::Error>> {
+    for current_incomeasset in complete_asset_list {
+        info!("\n-----------------------------------");
+        let total_starting_asset: f64 = current_incomeasset.total_asset_value();
+        info!(
+            "{:?} Total Asset : ${total_starting_asset:.2}",
+            current_incomeasset.input_date()
+        );
 
-        let initial_fixed_cost = yearly_expenses / (current_user.periods_in_year() as f64);
-        let inflation = market.inflation_yearly() / (current_user.periods_in_year() as f64);
-        let fixed_cost =
-            calculate_compound(initial_fixed_cost, inflation, period_in_retirement as f64);
-        debug!("");
-        debug!("[{period_in_retirement}] : Age: {age_in_retirement:.2} FixedCost: {fixed_cost:.2}");
-
-        current_asset_list.sort_by(|a, b| b.cmp(a));
-
-        // Calculate Total Income for the period
-        let mut total_income = 0.0;
-        for income in income_list {
-            let generated_income =
-                income.compute_income(current_user, age_in_retirement, period_in_retirement);
-            total_income += generated_income;
-        }
-        debug!("Generated Total Income : {total_income:.2}");
-        let rest_of_revenue = (fixed_cost - total_income) * current_user.buffer();
-
-        debug!("Assets will need to provide for {rest_of_revenue:.2}");
-        revenue_still_needed = rest_of_revenue;
-        for asset in &mut current_asset_list {
-            let (new_asset_value, frozen_asset, revenue_left) = asset.process_asset(
-                current_user,
-                market,
-                age_in_retirement,
-                period_in_retirement,
-                revenue_still_needed,
-            );
-            revenue_still_needed = revenue_left;
-            total_frozen_asset += frozen_asset;
-            debug!("Still Needed : {revenue_still_needed:.2} Frozen : {frozen_asset:.2} Total Frozen: {total_frozen_asset:.2} New Asset Value: {new_asset_value:.2}");
-
-            asset.set_value(new_asset_value);
-        }
-
-        initial_revenue = total_income + (rest_of_revenue - revenue_still_needed);
-
-        output_rows.push(format!("{period_in_retirement},{age_in_retirement:.2},{fixed_cost:.2},{total_income:.2},{:.2},{:.2},{total_frozen_asset:.2}",(rest_of_revenue-revenue_still_needed), (initial_revenue)));
-        if revenue_still_needed > 0.0 {
-            print_shortfall(fixed_cost, revenue_still_needed);
-        }
+        // Process the current line
+        simulate(current_incomeasset, current_user, market);
     }
-    (
-        revenue_still_needed,
-        initial_revenue,
-        current_asset_list,
-        output_rows,
-    )
+    Ok(())
 }
 
-fn print_shortfall(min_expenses: f64, shortfall: f64) {
-    debug!("---------Shortfall----------");
-    debug!("Min Needed:{min_expenses:.2} Shortfall:{shortfall:.2}");
-    debug!("----------------------------");
+fn simulate(income_asset: IncomeAsset, user: &User, market: &MarketConditions) {
+    // For each period, calculate the locked asset and unlocked assets
+    let total_periods = user.length_of_retirement() as usize * market.periods_in_year();
+
+    // Final period
+    let age_at_p = utils::calculate_age(user, total_periods, market.periods_in_year());
+    let final_period = Period::new(total_periods, age_at_p, income_asset.clone(), market);
+
+    // Current period
+    let age_at_p = utils::calculate_age(user, 0, market.periods_in_year());
+    let mut current_period = Period::new(0, age_at_p, income_asset.clone(), market);
+
+    let current_income = current_period
+        .income_asset()
+        .total_unlocked_income_value(user.current_age())
+        / market.periods_in_year() as f64;
+
+    let min_asset_withdrawal =
+        current_period.income_asset().total_asset_value() / total_periods as f64;
+    let min_spending = min_asset_withdrawal + current_income;
+
+    let factor = current_period
+        .income_asset()
+        .total_unlocked_assets_value(user.current_age())
+        / current_period.income_asset().total_asset_value();
+
+    current_period.set_spending(min_spending);
+
+    let max_asset_withdrawal =
+        final_period.income_asset().total_asset_value() * factor / total_periods as f64;
+    let max_spending = max_asset_withdrawal + current_income;
+
+    debug!("{}", final_period);
+    info!("{}", current_period);
+    info!(
+        "Unlocked Factor: {:.2} Spending Min: ${:.2} ({min_asset_withdrawal:.2}) Max: ${:.2} ({max_asset_withdrawal:.2})",
+        factor, min_spending, max_spending
+    );
 }

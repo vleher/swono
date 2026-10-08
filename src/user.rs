@@ -8,7 +8,6 @@ pub struct User {
     max_age: f64,
     yearly_expenses: f64,
     buffer: f64,
-    periods_in_year: usize,
     input_file: String,
 }
 
@@ -21,7 +20,6 @@ impl User {
             max_age: 100.0,
             yearly_expenses: 0.0,
             buffer: 1.0,
-            periods_in_year: 12,
             input_file: String::from("Income_Assets.csv"),
         }
     }
@@ -48,10 +46,6 @@ impl User {
         self.yearly_expenses
     }
 
-    pub(crate) fn periods_in_year(&self) -> usize {
-        self.periods_in_year
-    }
-
     pub(crate) fn buffer(&self) -> f64 {
         self.buffer
     }
@@ -64,9 +58,9 @@ impl User {
         self.max_age() - self.current_age()
     }
 
-    pub(crate) fn total_periods_of_retirement(&self) -> usize {
-        self.length_of_retirement() as usize * self.periods_in_year()
-    }
+    // pub(crate) fn total_periods_of_retirement(&self) -> usize {
+    //     self.length_of_retirement() as usize * self.periods_in_year()
+    // }
 }
 
 #[cfg(test)]

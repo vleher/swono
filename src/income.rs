@@ -1,4 +1,4 @@
-use std::fmt;
+use std::fmt::{self, Display};
 
 use log::{debug, info};
 use serde::{Deserialize, Serialize};
@@ -7,7 +7,7 @@ use super::asset::AccountType;
 use crate::user::User;
 use crate::utils::calculate_compound;
 
-#[derive(Serialize, Deserialize, Debug)]
+#[derive(Serialize, Deserialize, Debug, Clone)]
 pub struct Income {
     name: String,
     asset_type: AccountType,
@@ -42,8 +42,13 @@ impl Income {
     pub(crate) fn real_return(&self) -> f64 {
         self.real_return
     }
+
+    pub fn is_accessable(&self, age: f64) -> bool {
+        age >= self.start_age() && age <= self.end_age()
+    }
 }
 
+#[derive(Clone, Debug)]
 pub struct IncomeWithValue<'a> {
     config: &'a Income,
     value: f64,
@@ -62,26 +67,18 @@ impl<'a> IncomeWithValue<'a> {
         self.config
     }
 
-    pub fn compute_income(
-        &self,
-        current_user: &User,
-        age_in_retirement: f64,
-        period_in_retirement: usize,
-    ) -> f64 {
-        let mut generated_income = 0.0;
-        if self.value() > 0.0
-            && self.config().start_age() <= age_in_retirement
-            && self.config().end_age() > age_in_retirement
-        {
-            let rate = (self.config().real_return()) / (current_user.periods_in_year() as f64);
-            generated_income = calculate_compound(
-                self.value() / (current_user.periods_in_year() as f64),
-                rate,
-                period_in_retirement as f64,
-            );
+    pub fn is_accessable(&self, age: f64) -> bool {
+        self.config().is_accessable(age)
+    }
 
-            debug!("{} : pays {:.2}", self.config().name(), generated_income);
-        }
-        generated_income
-    } // application
+    pub(crate) fn set_value(&mut self, new_value: f64) -> f64 {
+        self.value = new_value;
+        self.value
+    }
+}
+
+impl<'a> Display for IncomeWithValue<'a> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}: ${:.2}", self.config().name(), self.value())
+    }
 }
